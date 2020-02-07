@@ -25,15 +25,13 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"regexp"
 	"strings"
 
-	"github.com/google/logger"
 	"github.com/gookit/color"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +40,7 @@ var statusCmd = &cobra.Command{
 	Use:     "status [/path/to/file.aurora]",
 	Short:   "Summarize status for all jobs in aurora file.",
 	Example: " status /jobs/app.aurora",
-	Args:    cobra.ExactArgs(1),
+	Args:    cobra.MinimumNArgs(1),
 	RunE:    statusCmdF,
 }
 
@@ -58,6 +56,7 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// statusCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+
 }
 
 // JobUpdate contains info on a potential job update
@@ -86,99 +85,109 @@ func NewJobUpdate(job string, jobindex int) JobUpdate {
 
 func statusCmdF(command *cobra.Command, args []string) error {
 
-	auroraFile := args[0]
-
 	// unified is a nicer diff view
 	// ignore `owner` differences
 	os.Setenv("DIFF_VIEWER", "diff -u -I \"'owner': Identity\"")
-
-	logger := logger.Init("aurorapa", true, false, ioutil.Discard)
-	defer logger.Close()
 
 	auroraExe := "aurora"
 
 	auroraExePath, err := exec.LookPath(auroraExe)
 	if err != nil {
-		logger.Fatalf("%s not found", auroraExe)
+		log.Fatalf("%s not found", auroraExe)
 	}
-	//logger.Infof("%s is available at %s\n", command, path)
+	log.Infof("%s is available at %s\n", auroraExe, auroraExePath)
 
-	cmd := exec.Command(auroraExePath, "config", "list", auroraFile)
-	//cmd.Stdin = strings.NewReader("")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err = cmd.Run()
+	auroraFiles := args
+	//auroraFile := args[0]
 
-	if err != nil {
-		log.Fatal(err)
-	}
+	for i := range auroraFiles {
+		auroraFile := auroraFiles[i]
 
-	str1 := out.String()
-	re := regexp.MustCompile(`\[([^\[\]]*)\]`)
-	submatch := re.FindString(str1)
-
-	jobseparators := "[], "
-	f := func(r rune) bool {
-		return strings.ContainsRune(jobseparators, r)
-	}
-
-	jobs := strings.FieldsFunc(submatch, f)
-	//logger.Infof("Jobs: %q\n", jobs)
-
-	fmt.Printf("Aurora file: %s contains %d jobs.\n", auroraFile, len(jobs))
-
-	for i, job := range jobs {
-		j := NewJobUpdate(job, i)
-
-		diffCmd := exec.Command(auroraExePath, "job", "diff", j.Job, auroraFile)
+		cmd := exec.Command(auroraExePath, "config", "list", auroraFile)
+		//cmd.Stdin = strings.NewReader("")
 		var out bytes.Buffer
-		diffCmd.Stdout = &out
-		err = diffCmd.Run()
+		cmd.Stdout = &out
+		err = cmd.Run()
+
 		if err != nil {
-			log.Fatal(err)
+			log.Errorf("%v: %v", auroraFile, err)
 		}
 
-		//fmt.Printf("%q\n", out.String())
+		str1 := out.String()
+		re := regexp.MustCompile(`\[([^\[\]]*)\]`)
+		submatch := re.FindString(str1)
 
-		scanner := bufio.NewScanner(strings.NewReader(out.String()))
+		jobseparators := "[], "
+		f := func(r rune) bool {
+			return strings.ContainsRune(jobseparators, r)
+		}
 
-		for l := 0; scanner.Scan(); l++ {
-			//fmt.Println(l, scanner.Text())
-			if strings.HasPrefix(scanner.Text(), "This job update will:") {
-				j.FoundHeader = true
+		jobs := strings.FieldsFunc(submatch, f)
+		//log.Infof("Jobs: %q\n", jobs)
+
+		log.Infof("Aurora file: %s contains %d jobs.", auroraFile, len(jobs))
+
+		for i, job := range jobs {
+			j := NewJobUpdate(job, i)
+
+			//fmt.Printf("%q, %q\n", j.Job, auroraFile)
+			diffCmd := exec.Command(auroraExePath, "job", "diff", j.Job, auroraFile)
+
+			updateCmdString := fmt.Sprintf("%s update start %s %s", auroraExe, j.Job, auroraFile)
+
+			var out bytes.Buffer
+			diffCmd.Stdout = &out
+			err = diffCmd.Run()
+			if err != nil {
+				log.Errorf("%v: Error running diff Command, possibly it expects input on stdin: %v", j.Job, err)
+				continue
 			}
 
-			if strings.HasPrefix(scanner.Text(), "remove instances:") {
-				j.Dirty = true
-				instances := re.FindString(scanner.Text())
-				j.Remove = instances
-			} else if strings.HasPrefix(scanner.Text(), "add instances:") {
-				j.Dirty = true
-				instances := re.FindString(scanner.Text())
-				j.Add = instances
-			} else if strings.HasPrefix(scanner.Text(), "update instances:") {
-				instances := re.FindString(scanner.Text())
-				j.Update = instances
-			} else if !j.FoundHeader {
-				j.Diff = append(j.Diff, scanner.Text())
-				j.Dirty = true
+			//fmt.Printf("%q\n", out.String())
+
+			scanner := bufio.NewScanner(strings.NewReader(out.String()))
+
+			for l := 0; scanner.Scan(); l++ {
+				//fmt.Println(l, scanner.Text())
+				if strings.HasPrefix(scanner.Text(), "This job update will:") {
+					j.FoundHeader = true
+				}
+
+				if strings.HasPrefix(scanner.Text(), "remove instances:") {
+					j.Dirty = true
+					instances := re.FindString(scanner.Text())
+					j.Remove = instances
+				} else if strings.HasPrefix(scanner.Text(), "add instances:") {
+					j.Dirty = true
+					instances := re.FindString(scanner.Text())
+					j.Add = instances
+				} else if strings.HasPrefix(scanner.Text(), "update instances:") {
+					instances := re.FindString(scanner.Text())
+					j.Update = instances
+				} else if !j.FoundHeader {
+					j.Diff = append(j.Diff, scanner.Text())
+					j.Dirty = true
+				}
+
 			}
 
-		}
+			if j.Dirty {
+				color.Notice.Printf(
+					"# Job %d: %s, Dirty: %t. Remove: %s, Add: %s, Update: %s (Diff: %d lines)\n",
+					j.JobIndex, j.Job, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
+				color.Warn.Println(updateCmdString)
 
-		if j.Dirty {
-			color.Notice.Printf(
-				"# Job %d: %s, Dirty: %t. Remove: %s, Add: %s, Update: %s (Diff: %d lines)\n",
-				j.JobIndex, j.Job, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
+			} else {
+				color.Success.Printf(
+					"# Job %d: %s, Dirty: %t. Remove: %s, Add: %s, Update: %s (Diff: %d lines)\n",
+					j.JobIndex, j.Job, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
+			}
 
-		} else {
-			color.Success.Printf(
-				"# Job %d: %s, Dirty: %t. Remove: %s, Add: %s, Update: %s (Diff: %d lines)\n",
-				j.JobIndex, j.Job, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
-		}
-
-		for _, l := range j.Diff {
-			fmt.Println(l)
+			if verbose {
+				for _, l := range j.Diff {
+					fmt.Println(l)
+				}
+			}
 		}
 
 	}
