@@ -132,6 +132,7 @@ func statusCmdF(command *cobra.Command, args []string) error {
 
 			//fmt.Printf("%q, %q\n", j.Job, auroraFile)
 			diffCmd := exec.Command(auroraExePath, "job", "diff", j.Job, auroraFile)
+			diffCmd.Env = append(os.Environ(), "AURORA_UNATTENDED=1")
 
 			updateCmdString := fmt.Sprintf("%s update start %s %s", auroraExe, j.Job, auroraFile)
 
