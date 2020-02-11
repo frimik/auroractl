@@ -38,7 +38,7 @@ var (
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "aurorapa",
+	Use:   "auroractl",
 	Short: "A brief description of your application",
 	Long: `A longer description that spans multiple lines and likely contains
 examples and usage of using your application. For example:
@@ -67,7 +67,7 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.aurorapa.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.auroractl.yaml)")
 
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	// Cobra also supports local flags, which will only run
@@ -88,9 +88,9 @@ func initConfig() {
 			os.Exit(1)
 		}
 
-		// Search config in home directory with name ".aurorapa" (without extension).
+		// Search config in home directory with name ".auroractl" (without extension).
 		viper.AddConfigPath(home)
-		viper.SetConfigName(".aurorapa")
+		viper.SetConfigName(".auroractl")
 	}
 
 	viper.AutomaticEnv() // read in environment variables that match

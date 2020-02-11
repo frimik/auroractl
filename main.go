@@ -21,7 +21,7 @@ THE SOFTWARE.
 */
 package main
 
-import "github.com/frimik/aurorapa/cmd"
+import "github.com/frimik/auroractl/cmd"
 
 func main() {
 	cmd.Execute()

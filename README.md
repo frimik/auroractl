@@ -1,5 +1,5 @@
-Aurora Particle Accelerator
-===========================
+Aurora Control
+==============
 
-**aurorapa** helps automate job diffs and deploys.
+**auroractl** helps automate job diffs and deploys.
 
