@@ -83,6 +83,10 @@ func NewJobUpdate(job string, jobindex int) JobUpdate {
 	return jobupdate
 }
 
+func verboseFlag() string {
+	return "--verbose"
+}
+
 func statusCmdF(command *cobra.Command, args []string) error {
 
 	// unified is a nicer diff view
@@ -103,11 +107,17 @@ func statusCmdF(command *cobra.Command, args []string) error {
 	for i := range auroraFiles {
 		auroraFile := auroraFiles[i]
 
-		cmd := exec.Command(auroraExePath, "config", "list", auroraFile)
-		//cmd.Stdin = strings.NewReader("")
+		argParts := []string{"config", "list"}
+		if debug {
+			argParts = append(argParts, verboseFlag())
+		}
+		argParts = append(argParts, auroraFile)
+		listCmd := exec.Command(auroraExePath, argParts...)
+
 		var out bytes.Buffer
-		cmd.Stdout = &out
-		err = cmd.Run()
+		listCmd.Stdout = &out
+		listCmd.Stderr = os.Stderr
+		err = listCmd.Run()
 
 		if err != nil {
 			log.Errorf("%v: %v", auroraFile, err)
@@ -130,14 +140,19 @@ func statusCmdF(command *cobra.Command, args []string) error {
 		for i, job := range jobs {
 			j := NewJobUpdate(job, i)
 
-			//fmt.Printf("%q, %q\n", j.Job, auroraFile)
-			diffCmd := exec.Command(auroraExePath, "job", "diff", j.Job, auroraFile)
+			argParts := []string{"job", "diff"}
+			if debug {
+				argParts = append(argParts, verboseFlag())
+			}
+			argParts = append(argParts, j.Job, auroraFile)
+			diffCmd := exec.Command(auroraExePath, argParts...)
 			diffCmd.Env = append(os.Environ(), "AURORA_UNATTENDED=1")
 
 			updateCmdString := fmt.Sprintf("%s update start %s %s", auroraExe, j.Job, auroraFile)
 
 			var out bytes.Buffer
 			diffCmd.Stdout = &out
+			diffCmd.Stderr = os.Stderr
 			err = diffCmd.Run()
 			if err != nil {
 				log.Errorf("%v: Error running diff Command, possibly it expects input on stdin: %v", j.Job, err)
