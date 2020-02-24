@@ -30,6 +30,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/frimik/auroractl/pkg/format"
+
 	"github.com/gookit/color"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -187,16 +189,15 @@ func statusCmdF(command *cobra.Command, args []string) error {
 
 			}
 
+			statusFormat := format.Notice("# Job [%d: %s]: ") + "Dirty: %t. Remove: " + format.Remove("%s") + ", Add: " + format.Add("%s") + ", Update: " + format.Update("%s") + ". (Diff: %d lines)\n"
+
 			if j.Dirty {
-				color.Notice.Printf(
-					"# Job %d: %s, Dirty: %t. Remove: %s, Add: %s, Update: %s (Diff: %d lines)\n",
-					j.JobIndex, j.Job, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
+				color.Printf(statusFormat, j.JobIndex, j.Job, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
 				color.Warn.Println(updateCmdString)
 
 			} else {
-				color.Success.Printf(
-					"# Job %d: %s, Dirty: %t. Remove: %s, Add: %s, Update: %s (Diff: %d lines)\n",
-					j.JobIndex, j.Job, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
+				statusFormat := format.LightGreen("# Job [%d: %s]: ") + "Dirty: %t. Remove: " + format.Remove("%s") + ", Add: " + format.Add("%s") + ", Update: " + format.Update("%s") + ". (Diff: %d lines)\n"
+				color.Printf(statusFormat, j.JobIndex, j.Job, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
 			}
 
 			if verbose {

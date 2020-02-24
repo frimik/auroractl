@@ -21,8 +21,11 @@ THE SOFTWARE.
 */
 package main
 
-import "github.com/frimik/auroractl/cmd"
+import (
+	"github.com/frimik/auroractl/cmd"
+)
 
 func main() {
+	// use like func
 	cmd.Execute()
 }
