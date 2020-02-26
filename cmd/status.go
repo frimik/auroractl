@@ -31,6 +31,7 @@ import (
 	"strings"
 
 	"github.com/frimik/auroractl/pkg/format"
+	"github.com/frimik/auroractl/pkg/util"
 
 	"github.com/gookit/color"
 	log "github.com/sirupsen/logrus"
@@ -166,9 +167,9 @@ func statusCmdF(command *cobra.Command, args []string) error {
 		for i, job := range jobs {
 			j := NewJobUpdate(job, i)
 
-			if len(auroraRole) == 0 {
+			if len(auroraRoles) == 0 {
 				filteredJobs = append(filteredJobs, j)
-			} else if len(auroraRole) > 0 && auroraRole == j.Job.Role {
+			} else if len(auroraRoles) > 0 && util.StringInSlice(j.Job.Role, auroraRoles) {
 				filteredJobs = append(filteredJobs, j)
 			}
 		}
