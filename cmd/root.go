@@ -32,9 +32,12 @@ import (
 )
 
 var (
-	cfgFile string
-	verbose bool
-	debug   bool
+	cfgFile    string
+	auroraRole string
+	auroraEnv  string
+	auroraJob  string
+	verbose    bool
+	debug      bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -72,6 +75,8 @@ func init() {
 
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "debug output")
+
+	rootCmd.PersistentFlags().StringVarP(&auroraRole, "role", "r", "", "Limit actions by Aurora role.")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.

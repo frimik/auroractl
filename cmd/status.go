@@ -64,7 +64,7 @@ func init() {
 // JobUpdate contains info on a potential job update
 type JobUpdate struct {
 	JobIndex    int
-	Job         string
+	Job         Job
 	Dirty       bool
 	Diff        []string
 	FoundHeader bool
@@ -73,10 +73,32 @@ type JobUpdate struct {
 	Remove      string
 }
 
+// Job contains a job
+type Job struct {
+	Cluster string
+	Role    string
+	Env     string
+	Job     string
+	JobPath string
+}
+
+// NewJobFromString returns a Job struct based on "cluster/role/env/job" string
+func NewJobFromString(job string) Job {
+	jobParts := strings.Split(job, "/")
+
+	return Job{
+		Cluster: jobParts[0],
+		Role:    jobParts[1],
+		Env:     jobParts[2],
+		Job:     jobParts[3],
+		JobPath: job,
+	}
+}
+
 // NewJobUpdate initializes a new JobUpdate with a default Dirty value set to false
 func NewJobUpdate(job string, jobindex int) JobUpdate {
 	jobupdate := JobUpdate{}
-	jobupdate.Job = job
+	jobupdate.Job = NewJobFromString(job)
 	jobupdate.JobIndex = jobindex
 	// set defaults
 	jobupdate.Dirty = false
@@ -139,25 +161,37 @@ func statusCmdF(command *cobra.Command, args []string) error {
 
 		log.Infof("Aurora file: %s contains %d jobs.", auroraFile, len(jobs))
 
+		var filteredJobs []JobUpdate
+
 		for i, job := range jobs {
 			j := NewJobUpdate(job, i)
 
+			if len(auroraRole) == 0 {
+				filteredJobs = append(filteredJobs, j)
+			} else if len(auroraRole) > 0 && auroraRole == j.Job.Role {
+				filteredJobs = append(filteredJobs, j)
+			}
+		}
+
+		log.Infof("Aurora file: %s contains %d jobs after filtering.", auroraFile, len(filteredJobs))
+
+		for _, j := range filteredJobs {
 			argParts := []string{"job", "diff"}
 			if debug {
 				argParts = append(argParts, verboseFlag())
 			}
-			argParts = append(argParts, j.Job, auroraFile)
+			argParts = append(argParts, j.Job.JobPath, auroraFile)
 			diffCmd := exec.Command(auroraExePath, argParts...)
 			diffCmd.Env = append(os.Environ(), "AURORA_UNATTENDED=1")
 
-			updateCmdString := fmt.Sprintf("%s update start %s %s", auroraExe, j.Job, auroraFile)
+			updateCmdString := fmt.Sprintf("%s update start %s %s", auroraExe, j.Job.JobPath, auroraFile)
 
 			var out bytes.Buffer
 			diffCmd.Stdout = &out
 			diffCmd.Stderr = os.Stderr
 			err = diffCmd.Run()
 			if err != nil {
-				log.Errorf("%v: Error running diff Command, possibly it expects input on stdin: %v", j.Job, err)
+				log.Errorf("%v: Error running diff Command, possibly it expects input on stdin: %v", j.Job.JobPath, err)
 				continue
 			}
 
@@ -189,15 +223,16 @@ func statusCmdF(command *cobra.Command, args []string) error {
 
 			}
 
-			statusFormat := format.Notice("# Job [%d: %s]: ") + "Dirty: %t. Remove: " + format.Remove("%s") + ", Add: " + format.Add("%s") + ", Update: " + format.Update("%s") + ". (Diff: %d lines)\n"
+			// format if dirty
+			statusFormat := format.Update("# Job [%d: %s]: ") + "Dirty: %t. Remove: " + format.Remove("%s") + ", Add: " + format.Add("%s") + ", Update: " + format.Update("%s") + ". (Diff: %d lines)\n"
 
 			if j.Dirty {
-				color.Printf(statusFormat, j.JobIndex, j.Job, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
+				color.Printf(statusFormat, j.JobIndex, j.Job.JobPath, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
 				color.Warn.Println(updateCmdString)
 
 			} else {
 				statusFormat := format.LightGreen("# Job [%d: %s]: ") + "Dirty: %t. Remove: " + format.Remove("%s") + ", Add: " + format.Add("%s") + ", Update: " + format.Update("%s") + ". (Diff: %d lines)\n"
-				color.Printf(statusFormat, j.JobIndex, j.Job, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
+				color.Printf(statusFormat, j.JobIndex, j.Job.JobPath, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
 			}
 
 			if verbose {
