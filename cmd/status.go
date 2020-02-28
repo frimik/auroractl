@@ -165,11 +165,25 @@ func statusCmdF(command *cobra.Command, args []string) error {
 		var filteredJobs []JobUpdate
 
 		for i, job := range jobs {
+			jobSelected := true
+
 			j := NewJobUpdate(job, i)
 
-			if len(auroraRoles) == 0 {
-				filteredJobs = append(filteredJobs, j)
-			} else if len(auroraRoles) > 0 && util.StringInSlice(j.Job.Role, auroraRoles) {
+			if len(auroraRoles) > 0 || len(auroraEnvs) > 0 || len(auroraJobs) > 0 {
+				// do filtering
+				jobSelected = false
+				if len(auroraRoles) > 0 && util.StringInSlice(j.Job.Role, auroraRoles) {
+					jobSelected = true
+				}
+				if len(auroraEnvs) > 0 && util.StringInSlice(j.Job.Env, auroraEnvs) {
+					jobSelected = true
+				}
+				if len(auroraJobs) > 0 && util.StringInSlice(j.Job.Job, auroraJobs) {
+					jobSelected = true
+				}
+			}
+
+			if jobSelected {
 				filteredJobs = append(filteredJobs, j)
 			}
 		}

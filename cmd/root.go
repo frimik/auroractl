@@ -76,7 +76,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "debug output")
 
-	rootCmd.PersistentFlags().StringSliceVarP(&auroraRoles, "role", "r", []string{}, "Limit actions by Aurora roles.")
+	rootCmd.PersistentFlags().StringSliceVar(&auroraRoles, "role", []string{}, "Filter by Aurora roles.")
+	rootCmd.PersistentFlags().StringSliceVar(&auroraEnvs, "env", []string{}, "Filter by Aurora envs")
+	rootCmd.PersistentFlags().StringSliceVar(&auroraJobs, "job", []string{}, "Filter by Aurora jobs")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
