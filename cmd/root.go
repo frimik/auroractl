@@ -32,12 +32,15 @@ import (
 )
 
 var (
-	cfgFile     string
-	auroraRoles []string
-	auroraEnvs  []string
-	auroraJobs  []string
-	verbose     bool
-	debug       bool
+	cfgFile           string
+	auroraClusters    []string
+	auroraRoles       []string
+	auroraEnvs        []string
+	auroraJobs        []string
+	verbose           bool
+	debug             bool
+	auroraExe         string
+	auroraConcurrency int
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -76,9 +79,12 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&debug, "debug", "d", false, "debug output")
 
-	rootCmd.PersistentFlags().StringSliceVar(&auroraRoles, "role", []string{}, "Filter by Aurora roles.")
+	rootCmd.PersistentFlags().StringSliceVar(&auroraClusters, "cluster", []string{}, "Filter by Aurora roles")
+	rootCmd.PersistentFlags().StringSliceVar(&auroraRoles, "role", []string{}, "Filter by Aurora roles")
 	rootCmd.PersistentFlags().StringSliceVar(&auroraEnvs, "env", []string{}, "Filter by Aurora envs")
 	rootCmd.PersistentFlags().StringSliceVar(&auroraJobs, "job", []string{}, "Filter by Aurora jobs")
+	rootCmd.PersistentFlags().StringVar(&auroraExe, "aurora", "aurora", "Name of Aurora CLI executable")
+	rootCmd.PersistentFlags().IntVarP(&auroraConcurrency, "concurrency", "c", 1, "Max concurrent Aurora CLIs to execute")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.

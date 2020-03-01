@@ -24,6 +24,7 @@ package cmd
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -47,6 +48,12 @@ var statusCmd = &cobra.Command{
 	RunE:    statusCmdF,
 }
 
+var (
+	auroraExePath string
+	err           error
+	sem           chan bool
+)
+
 func init() {
 	rootCmd.AddCommand(statusCmd)
 
@@ -59,6 +66,8 @@ func init() {
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
 	// statusCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+
+	auroraExePath, err = exec.LookPath(auroraExe)
 
 }
 
@@ -76,31 +85,33 @@ type JobUpdate struct {
 
 // Job contains a job
 type Job struct {
-	Cluster string
-	Role    string
-	Env     string
-	Job     string
-	JobPath string
+	Cluster    string
+	Role       string
+	Env        string
+	Job        string
+	JobPath    string
+	AuroraFile string
 }
 
 // NewJobFromString returns a Job struct based on "cluster/role/env/job" string
-func NewJobFromString(job string) Job {
+func NewJobFromString(job string, auroraFile string) Job {
 	jobParts := strings.Split(job, "/")
 
 	return Job{
-		Cluster: jobParts[0],
-		Role:    jobParts[1],
-		Env:     jobParts[2],
-		Job:     jobParts[3],
-		JobPath: job,
+		Cluster:    jobParts[0],
+		Role:       jobParts[1],
+		Env:        jobParts[2],
+		Job:        jobParts[3],
+		JobPath:    job,
+		AuroraFile: auroraFile,
 	}
 }
 
 // NewJobUpdate initializes a new JobUpdate with a default Dirty value set to false
-func NewJobUpdate(job string, jobindex int) JobUpdate {
+func NewJobUpdate(jobString string, jobIndex int, auroraFile string) JobUpdate {
 	jobupdate := JobUpdate{}
-	jobupdate.Job = NewJobFromString(job)
-	jobupdate.JobIndex = jobindex
+	jobupdate.Job = NewJobFromString(jobString, auroraFile)
+	jobupdate.JobIndex = jobIndex
 	// set defaults
 	jobupdate.Dirty = false
 	jobupdate.FoundHeader = false
@@ -112,15 +123,99 @@ func verboseFlag() string {
 	return "--verbose"
 }
 
+//concurrency := 5
+//sem := make(chan bool, concurrency)
+//urls := []string{"url1", "url2"}
+//for _, url := range urls {
+//    sem <- true
+//    go func(url) {
+//        defer func() { <-sem }()
+//        // get the url
+//    }(url)
+//}
+//for i := 0; i < cap(sem); i++ {
+//    sem <- true
+//}
+
+func auroraJobDiff(j JobUpdate) error {
+	defer func() { <-sem }()
+
+	re := regexp.MustCompile(`\[([^\[\]]*)\]`)
+
+	argParts := []string{"job", "diff"}
+	if debug {
+		argParts = append(argParts, verboseFlag())
+	}
+	argParts = append(argParts, j.Job.JobPath, j.Job.AuroraFile)
+	diffCmd := exec.Command(auroraExePath, argParts...)
+	diffCmd.Env = append(os.Environ(), "AURORA_UNATTENDED=1")
+
+	updateCmdString := fmt.Sprintf("%s update start %s %s", auroraExe, j.Job.JobPath, j.Job.AuroraFile)
+
+	var out bytes.Buffer
+	diffCmd.Stdout = &out
+	diffCmd.Stderr = os.Stderr
+	err := diffCmd.Run()
+	if err != nil {
+		log.Errorf("%v: Error running diff Command, possibly it expects input on stdin: %v", j.Job.JobPath, err)
+		return errors.New("fubar")
+	}
+
+	//fmt.Printf("%q\n", out.String())
+
+	scanner := bufio.NewScanner(strings.NewReader(out.String()))
+
+	for l := 0; scanner.Scan(); l++ {
+		//fmt.Println(l, scanner.Text())
+		if strings.HasPrefix(scanner.Text(), "This job update will:") {
+			j.FoundHeader = true
+		}
+
+		if strings.HasPrefix(scanner.Text(), "remove instances:") {
+			j.Dirty = true
+			instances := re.FindString(scanner.Text())
+			j.Remove = instances
+		} else if strings.HasPrefix(scanner.Text(), "add instances:") {
+			j.Dirty = true
+			instances := re.FindString(scanner.Text())
+			j.Add = instances
+		} else if strings.HasPrefix(scanner.Text(), "update instances:") {
+			instances := re.FindString(scanner.Text())
+			j.Update = instances
+		} else if !j.FoundHeader {
+			j.Diff = append(j.Diff, scanner.Text())
+			j.Dirty = true
+		}
+
+	}
+
+	// format if dirty
+	statusFormat := format.Update("# Job [%d: %s]: ") + "Dirty: %t. Remove: " + format.Remove("%s") + ", Add: " + format.Add("%s") + ", Update: " + format.Update("%s") + ". (Diff: %d lines)\n"
+
+	if j.Dirty {
+		color.Printf(statusFormat, j.JobIndex, j.Job.JobPath, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
+		color.Warn.Println(updateCmdString)
+
+	} else {
+		statusFormat := format.LightGreen("# Job [%d: %s]: ") + "Dirty: %t. Remove: " + format.Remove("%s") + ", Add: " + format.Add("%s") + ", Update: " + format.Update("%s") + ". (Diff: %d lines)\n"
+		color.Printf(statusFormat, j.JobIndex, j.Job.JobPath, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
+	}
+
+	if verbose {
+		for _, l := range j.Diff {
+			fmt.Println(l)
+		}
+	}
+
+	return nil
+}
+
 func statusCmdF(command *cobra.Command, args []string) error {
 
 	// unified is a nicer diff view
 	// ignore `owner` differences
 	os.Setenv("DIFF_VIEWER", "diff -u -I \"'owner': Identity\"")
 
-	auroraExe := "aurora"
-
-	auroraExePath, err := exec.LookPath(auroraExe)
 	if err != nil {
 		log.Fatalf("%s not found", auroraExe)
 	}
@@ -164,23 +259,25 @@ func statusCmdF(command *cobra.Command, args []string) error {
 
 		var filteredJobs []JobUpdate
 
-		for i, job := range jobs {
+		for i, jobString := range jobs {
 			jobSelected := true
 
-			j := NewJobUpdate(job, i)
+			j := NewJobUpdate(jobString, i, auroraFile)
 
-			if len(auroraRoles) > 0 || len(auroraEnvs) > 0 || len(auroraJobs) > 0 {
-				// do filtering
+			if len(auroraClusters) > 0 && !util.StringInSlice(j.Job.Cluster, auroraClusters) {
 				jobSelected = false
-				if len(auroraRoles) > 0 && util.StringInSlice(j.Job.Role, auroraRoles) {
-					jobSelected = true
-				}
-				if len(auroraEnvs) > 0 && util.StringInSlice(j.Job.Env, auroraEnvs) {
-					jobSelected = true
-				}
-				if len(auroraJobs) > 0 && util.StringInSlice(j.Job.Job, auroraJobs) {
-					jobSelected = true
-				}
+			}
+
+			if len(auroraRoles) > 0 && !util.StringInSlice(j.Job.Role, auroraRoles) {
+				jobSelected = false
+			}
+
+			if len(auroraEnvs) > 0 && !util.StringInSlice(j.Job.Env, auroraEnvs) {
+				jobSelected = false
+			}
+
+			if len(auroraJobs) > 0 && !util.StringInSlice(j.Job.Job, auroraJobs) {
+				jobSelected = false
 			}
 
 			if jobSelected {
@@ -190,71 +287,14 @@ func statusCmdF(command *cobra.Command, args []string) error {
 
 		log.Infof("Aurora file: %s contains %d jobs after filtering.", auroraFile, len(filteredJobs))
 
+		sem = make(chan bool, auroraConcurrency)
+
 		for _, j := range filteredJobs {
-			argParts := []string{"job", "diff"}
-			if debug {
-				argParts = append(argParts, verboseFlag())
-			}
-			argParts = append(argParts, j.Job.JobPath, auroraFile)
-			diffCmd := exec.Command(auroraExePath, argParts...)
-			diffCmd.Env = append(os.Environ(), "AURORA_UNATTENDED=1")
-
-			updateCmdString := fmt.Sprintf("%s update start %s %s", auroraExe, j.Job.JobPath, auroraFile)
-
-			var out bytes.Buffer
-			diffCmd.Stdout = &out
-			diffCmd.Stderr = os.Stderr
-			err = diffCmd.Run()
-			if err != nil {
-				log.Errorf("%v: Error running diff Command, possibly it expects input on stdin: %v", j.Job.JobPath, err)
-				continue
-			}
-
-			//fmt.Printf("%q\n", out.String())
-
-			scanner := bufio.NewScanner(strings.NewReader(out.String()))
-
-			for l := 0; scanner.Scan(); l++ {
-				//fmt.Println(l, scanner.Text())
-				if strings.HasPrefix(scanner.Text(), "This job update will:") {
-					j.FoundHeader = true
-				}
-
-				if strings.HasPrefix(scanner.Text(), "remove instances:") {
-					j.Dirty = true
-					instances := re.FindString(scanner.Text())
-					j.Remove = instances
-				} else if strings.HasPrefix(scanner.Text(), "add instances:") {
-					j.Dirty = true
-					instances := re.FindString(scanner.Text())
-					j.Add = instances
-				} else if strings.HasPrefix(scanner.Text(), "update instances:") {
-					instances := re.FindString(scanner.Text())
-					j.Update = instances
-				} else if !j.FoundHeader {
-					j.Diff = append(j.Diff, scanner.Text())
-					j.Dirty = true
-				}
-
-			}
-
-			// format if dirty
-			statusFormat := format.Update("# Job [%d: %s]: ") + "Dirty: %t. Remove: " + format.Remove("%s") + ", Add: " + format.Add("%s") + ", Update: " + format.Update("%s") + ". (Diff: %d lines)\n"
-
-			if j.Dirty {
-				color.Printf(statusFormat, j.JobIndex, j.Job.JobPath, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
-				color.Warn.Println(updateCmdString)
-
-			} else {
-				statusFormat := format.LightGreen("# Job [%d: %s]: ") + "Dirty: %t. Remove: " + format.Remove("%s") + ", Add: " + format.Add("%s") + ", Update: " + format.Update("%s") + ". (Diff: %d lines)\n"
-				color.Printf(statusFormat, j.JobIndex, j.Job.JobPath, j.Dirty, j.Remove, j.Add, j.Update, len(j.Diff))
-			}
-
-			if verbose {
-				for _, l := range j.Diff {
-					fmt.Println(l)
-				}
-			}
+			sem <- true
+			go auroraJobDiff(j)
+		}
+		for i := 0; i < cap(sem); i++ {
+			sem <- true
 		}
 
 	}
